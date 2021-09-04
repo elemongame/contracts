@@ -34,12 +34,20 @@ contract ElemonShop is Runnable, IERC721Receiver{
         _elemonNft = IElemonNFT(newAddress);
     }
     
+    /**
+    * @dev Set price for star range
+    * Only owner can call
+    */
     function setStarPrice(uint256 star, uint256 price) public onlyOwner{
         require(star > 0, "Star is 0");
         require(price > 0, "Price is 0");
         _starPrices[star] = price;
     }
     
+    /**
+    * @dev Set price for star range multiple in one transaction
+    * Only owner can call
+    */
     function setStarPriceMultiple(uint256[] memory stars, uint256[] memory prices) public onlyOwner{
         require(stars.length > 0 , "Empty array");
         require(stars.length == prices.length, "Invalid input");
@@ -51,11 +59,19 @@ contract ElemonShop is Runnable, IERC721Receiver{
         }
     }
     
+    /**
+     * @dev Specific star of an tokenId
+     * Only owner can call
+    */
     function setTokenStar(uint256 tokenId, uint256 star) public onlyOwner{
         require(star > 0, "Star is 0");
         _tokenStars[tokenId] = star;
     }
     
+    /**
+     * @dev Specific star of an tokenId multiple
+     * Only owner can call
+    */
     function setTokenStarMultiple(uint256[] memory tokenIds, uint256[] memory stars) public onlyOwner{
         require(tokenIds.length > 0 , "Empty array");
         require(tokenIds.length == stars.length, "Invalid input");
@@ -70,6 +86,10 @@ contract ElemonShop is Runnable, IERC721Receiver{
         return _starPrices[_tokenStars[tokenId]];
     }
     
+    /**
+    * @dev User purchase specific NFT token by tokenId by sending exact BNB quantity
+    * Contract will send NFT to user when transaction is validated
+    **/
     function purchase(uint256 tokenId) public payable whenRunning returns(bool){
         require(!_isSold[tokenId], "Sold");
         uint256 price = getTokenPrice(tokenId);
@@ -83,6 +103,9 @@ contract ElemonShop is Runnable, IERC721Receiver{
         return true;
     }
     
+    /**
+     * @dev Owner withdraws ERC20 token from contract by `tokenAddress`
+     */
     function withdrawToken(address tokenAddress) public onlyOwner{
         IERC20 token = IERC20(tokenAddress);
         token.transfer(owner(), token.balanceOf(address(this)));
@@ -92,6 +115,9 @@ contract ElemonShop is Runnable, IERC721Receiver{
         _elemonNft.setContractOwner(newOwner);
     }
     
+    /**
+     * @dev Owner withdraws BNB from contract
+     */
     function withdrawBnb() public onlyOwner{
         require(address(this).balance > 0, "Zero balance");
         payable(owner()).transfer(address(this).balance);

@@ -38,7 +38,9 @@ contract ElemonMarketplace is Ownable, IERC721Receiver{
     }
     
     /**
-     * @dev Create a sell order to sell ELEMON category
+     * @dev Create a sell order to sell ELEMON
+     * User transfer his NFT to contract to create selling order
+     * Event is used to retreive logs and histories
      */
     function createSellOrder(uint256 tokenId, uint256 price) external returns(bool){
         //Validate
@@ -59,7 +61,8 @@ contract ElemonMarketplace is Ownable, IERC721Receiver{
     }
     
     /**
-     * @dev User that created sell order can cancel that order
+     * @dev User that created selling order cancels that order
+     * Event is used to retreive logs and histories
      */ 
     function cancelSellOrder(uint256 tokenId) external returns(bool){
         require(_tokenOwners[tokenId] == _msgSender(), "Forbidden to cancel sell order");
@@ -117,7 +120,13 @@ contract ElemonMarketplace is Ownable, IERC721Receiver{
     }
     
     /**
-     * @dev User purchases a ELEMON category
+     * @dev User purchases a ELEMON by approving for `EMON` token payment
+     * When transaction is validated
+     *      - NFT will be sent to buyer, 
+     *      - `EMON` will be sent to seller,
+     *      - `EMON` fee will be sent to contract owner
+     * Event is used to retreive logs and histories
+     * 
      */ 
     function purchase(uint tokenId) external returns(uint){
         address tokenOwner = _tokenOwners[tokenId];
@@ -194,6 +203,14 @@ contract ElemonMarketplace is Ownable, IERC721Receiver{
         }
         
         return result;
+    }
+
+    /**
+     * @dev Owner withdraws ERC20 token from contract by `tokenAddress`
+     */
+    function withdrawToken(address tokenAddress) public onlyOwner{
+        IERC20 token = IERC20(tokenAddress);
+        token.transfer(owner(), token.balanceOf(address(this)));
     }
     
     function onERC721Received(address operator, address from, uint256 tokenId, bytes calldata data) external view override returns (bytes4){
