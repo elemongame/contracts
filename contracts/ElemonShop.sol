@@ -6,6 +6,7 @@ import "./interfaces/IERC20.sol";
 import "./interfaces/IERC721.sol";
 import "./interfaces/IERC721Receiver.sol";
 import "./utils/Runnable.sol";
+import "./utils/ReentrancyGuard.sol";
 
 interface IElemonNFT{
     function mint(address to, uint256 tokenId) external;
@@ -13,7 +14,7 @@ interface IElemonNFT{
     function safeTransferFrom(address from, address to, uint256 tokenId) external;
 }
 
-contract ElemonShop is Runnable, IERC721Receiver{
+contract ElemonShop is Runnable, ReentrancyGuard, IERC721Receiver{
     IElemonNFT public _elemonNft;
     
     //Mapping tokenId and 
@@ -90,10 +91,12 @@ contract ElemonShop is Runnable, IERC721Receiver{
     * @dev User purchase specific NFT token by tokenId by sending exact BNB quantity
     * Contract will send NFT to user when transaction is validated
     **/
-    function purchase(uint256 tokenId) public payable whenRunning returns(bool){
+    function purchase(uint256 tokenId, uint256 requestPrice) public payable whenRunning nonReentrant returns(bool){
         require(!_isSold[tokenId], "Sold");
+        require(requestPrice > 0, "requestPrice is zero");
         uint256 price = getTokenPrice(tokenId);
         require(price > 0, "Price is 0");
+        require(requestPrice == price, "Invalid requestPrice");
         require(msg.value == price, "Invalid BNB to purchase");
         
         _elemonNft.safeTransferFrom(address(this), _msgSender(), tokenId);
