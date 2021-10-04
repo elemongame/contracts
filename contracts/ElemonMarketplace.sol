@@ -29,6 +29,8 @@ contract ElemonMarketplace is Ownable, ReentrancyGuard, IERC721Receiver{
     mapping(uint256 => address) internal _tokenOwners;
     
     constructor(address tokenAddress, address nftAddress){
+        require(tokenAddress != address(0), "Address 0");
+        require(nftAddress != address(0), "Address 0");
         _elemonTokenAddress = tokenAddress;
         _elemonNftAddress = nftAddress;
         _feePercent = 2000;        //2%

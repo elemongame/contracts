@@ -27,6 +27,7 @@ contract ElemonShop is Runnable, ReentrancyGuard, IERC721Receiver{
     mapping(uint256 => uint256) public _tokenStars;
     
     constructor(address nftAddress){
+        require(nftAddress != address(0), "Address 0");
         _elemonNft = IElemonNFT(nftAddress);
     }
     
