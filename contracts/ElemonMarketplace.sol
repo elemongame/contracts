@@ -1,6 +1,6 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: UNLICENSED
 
-pragma solidity 0.8.7;
+pragma solidity 0.8.9;
 
 import "./utils/Ownable.sol";
 import "./interfaces/IERC721Receiver.sol";
@@ -80,7 +80,7 @@ contract ElemonMarketplace is Ownable, ReentrancyGuard, IERC721Receiver{
     /**
      * @dev Get token info about price and owner
      */ 
-    function getTokenInfo(uint tokenId) external view returns(address, uint){
+    function getTokenInfo(uint256 tokenId) external view returns(address, uint){
         return (_tokenOwners[tokenId], _tokenPrices[tokenId]);
     }
     
@@ -114,7 +114,7 @@ contract ElemonMarketplace is Ownable, ReentrancyGuard, IERC721Receiver{
      * Event is used to retreive logs and histories
      * 
      */ 
-    function purchase(uint tokenId, uint256 feePercent, uint256 requestTokenPrice) external nonReentrant returns(uint){
+    function purchase(uint256 tokenId, uint256 feePercent, uint256 requestTokenPrice) external nonReentrant returns(uint){
         address tokenOwner = _tokenOwners[tokenId];
         require(tokenOwner != address(0),"Token has not been added");
         require(feePercent == _feePercent, "Invalid feePercent");
@@ -129,9 +129,11 @@ contract ElemonMarketplace is Ownable, ReentrancyGuard, IERC721Receiver{
             uint256 feeAmount = 0;
             if(_feePercent > 0){
                 feeAmount = tokenPrice * _feePercent / 100 / MULTIPLIER;
-                require(elemonTokenContract.transfer(owner(), feeAmount));
+                if(feeAmount > 0){
+                    require(elemonTokenContract.transfer(owner(), feeAmount), "Fail to fee to contract owner");
+                }
             }
-            require(elemonTokenContract.transfer(tokenOwner, tokenPrice - feeAmount));
+            require(elemonTokenContract.transfer(tokenOwner, tokenPrice - feeAmount), "Fail to token to owner");
         }
         
         //Transfer Elemon NFT from contract to sender
@@ -148,7 +150,7 @@ contract ElemonMarketplace is Ownable, ReentrancyGuard, IERC721Receiver{
     /**
      * @dev Set ELEMON contract address 
      */
-    function setElemonContractAddress(address newAddress) external onlyOwner{
+    function setElemonNftAddress(address newAddress) external onlyOwner{
         require(newAddress != address(0), "Zero address");
         _elemonNftAddress = newAddress;
     }
@@ -164,7 +166,7 @@ contract ElemonMarketplace is Ownable, ReentrancyGuard, IERC721Receiver{
     /**
      * @dev Get ELEMON token address 
      */
-    function setFeePercent(uint feePercent) external onlyOwner{
+    function setFeePercent(uint256 feePercent) external onlyOwner{
         require(feePercent < 100 * MULTIPLIER, "Invalid fee percent");
         _feePercent = feePercent;
     }
@@ -172,9 +174,9 @@ contract ElemonMarketplace is Ownable, ReentrancyGuard, IERC721Receiver{
     /**
      * @dev Owner withdraws ERC20 token from contract by `tokenAddress`
      */
-    function withdrawToken(address tokenAddress) public onlyOwner{
+    function withdrawToken(address tokenAddress, address recepient) public onlyOwner{
         IERC20 token = IERC20(tokenAddress);
-        token.transfer(owner(), token.balanceOf(address(this)));
+        token.transfer(recepient, token.balanceOf(address(this)));
     }
     
     function onERC721Received(address operator, address from, uint256 tokenId, bytes calldata data) external view override returns (bytes4){

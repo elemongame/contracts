@@ -2,11 +2,9 @@
 
 pragma solidity 0.8.9;
 
-import "@chainlink/contracts/src/v0.8/VRFConsumerBase.sol";
-import "@chainlink/contracts/src/v0.8/ConfirmedOwner.sol";
-
 import "./interfaces/IERC20.sol";
 import "./interfaces/IERC721.sol";
+import "./utils/Runnable.sol";
 import "./utils/ReentrancyGuard.sol";
 
 interface IElemonNFT{
@@ -15,31 +13,8 @@ interface IElemonNFT{
     function safeTransferFrom(address from, address to, uint256 tokenId) external;
 }
 
-contract ElemonSummon is ReentrancyGuard, VRFConsumerBase, ConfirmedOwner(msg.sender){
-    struct ElemonProperty{
-        uint256 rarity;
-        uint256 baseCardId;
-        uint256 bodyPart01;
-        uint256 bodyPart02;
-        uint256 bodyPart03;
-        uint256 bodyPart04;
-        uint256 bodyPart05;
-        uint256 bodyPart06;
-        uint256 quality;
-    }
-
-    bytes32 private s_keyHash;
-    uint256 private s_fee;
-
-    uint256 public _tokenId = 1000;
-
-    IElemonNFT public _elemonNFT;
-
-    mapping(uint256 => ElemonProperty) public _tokenProperties;
-
+contract ElemonSummon is Runnable, ReentrancyGuard{
     mapping(uint256 => uint256) public _levelPrices;
-    mapping(bytes32 => uint256) public _tokenRequests;
-    mapping(uint256 => uint256) public _tokenLevels;
 
     address public _paymentTokenAddress;
     address public _recepientTokenAddress;
@@ -66,21 +41,21 @@ contract ElemonSummon is ReentrancyGuard, VRFConsumerBase, ConfirmedOwner(msg.se
     //Rarity => Base card id => list of quality
     mapping(uint256 => mapping(uint256 => uint256[])) public _qualities;
 
-    constructor(address paymentTokenAddress, address recepientTokenAddress, address elemonNFTAddress,
-            address vrfCoordinator, address link, bytes32 keyHash, uint256 fee) VRFConsumerBase(vrfCoordinator, link){
-        //CHAINLINK
-        s_keyHash = keyHash;
-        s_fee = fee;
-
+    constructor(address paymentTokenAddress, address recepientTokenAddress){
         _paymentTokenAddress = paymentTokenAddress;
         _recepientTokenAddress = recepientTokenAddress;
-        _elemonNFT = IElemonNFT(elemonNFTAddress);
         
-        _rarityAbilities[1][1] = 6000;
-        _rarityAbilities[1][2] = 3800;
-        _rarityAbilities[1][3] = 189;
-        _rarityAbilities[1][4] = 10;
-        _rarityAbilities[1][5] = 1;
+        //_rarityAbilities[1][1] = 6000;
+        //_rarityAbilities[1][2] = 3800;
+        //_rarityAbilities[1][3] = 189;
+        //_rarityAbilities[1][4] = 10;
+        //_rarityAbilities[1][5] = 1;
+        
+        _rarityAbilities[1][1] = 2000;
+        _rarityAbilities[1][2] = 2000;
+        _rarityAbilities[1][3] = 2000;
+        _rarityAbilities[1][4] = 2000;
+        _rarityAbilities[1][5] = 2000;
         
         _baseCardIds[1] = [4,5,6];
         
@@ -132,11 +107,6 @@ contract ElemonSummon is ReentrancyGuard, VRFConsumerBase, ConfirmedOwner(msg.se
         _qualities[rarity][baseCardId] = qualities;
     }
 
-    function setElemonNFT(address elemonNFTAddress) external onlyOwner{
-        require(elemonNFTAddress != address(0), "Address 0");
-        _elemonNFT = IElemonNFT(elemonNFTAddress);
-    }
-
     function setPaymentTokenAddress(address paymentTokenAddress) external onlyOwner{
         require(paymentTokenAddress != address(0), "Address 0");
         _paymentTokenAddress = paymentTokenAddress;
@@ -153,50 +123,14 @@ contract ElemonSummon is ReentrancyGuard, VRFConsumerBase, ConfirmedOwner(msg.se
         emit LevelPriceSetted(level, price);
     }
 
-    function open(uint256 level) external nonReentrant{
-        require(LINK.balanceOf(address(this)) >= s_fee, "Not enough LINK to pay fee");
+    function open(uint256 level) external whenRunning nonReentrant{
         require(level > 0, "Level should be greater than 0");
         require(_recepientTokenAddress != address(0), "Recepient address is not setted");
         uint256 price = _levelPrices[level];
-        require(price > 0, "Price should be greater than 0");
-
+        require(price > 0, "Price should be greater than 0");        
         IERC20(_paymentTokenAddress).transferFrom(_msgSender(), _recepientTokenAddress, price);
 
-        //Mint nft for user
-        _elemonNFT.mint(_msgSender(), _tokenId);
-
-        _tokenRequests[requestRandomness(s_keyHash, s_fee)] = _tokenId;
-        _tokenLevels[_tokenId] = level;
-        _tokenId++;
-
         emit Purchased(level, _msgSender(), _now());
-    }
-
-    function fulfillRandomness(bytes32 requestId, uint256 randomness) internal override {
-        uint256 tokenId = _tokenRequests[requestId];
-        require(tokenId >= 1000, "Invalid requestId");
-
-        (uint256 rarity, uint256 baseCardId, uint256 bodyPart01, 
-                uint256 bodyPart02, uint256 bodyPart03, uint256 bodyPart04, 
-                uint256 bodyPart05, uint256 bodyPart06, uint256 quality) = _processTokenProperties(_tokenLevels[tokenId], randomness);
-        ElemonProperty memory elemonProperty = ElemonProperty({
-            rarity: rarity,
-            baseCardId: baseCardId,
-            bodyPart01: bodyPart01,
-            bodyPart02: bodyPart02,
-            bodyPart03: bodyPart03,
-            bodyPart04: bodyPart04,
-            bodyPart05: bodyPart05,
-            bodyPart06: bodyPart06,
-            quality: quality
-        });
-        _tokenProperties[tokenId] = elemonProperty;
-
-        emit TokenPropertyMinted(tokenId, elemonProperty);
-    }
-
-    function withdrawLINK(address to, uint256 value) public onlyOwner {
-        require(LINK.transfer(to, value), "Not enough LINK");
     }
     
     function _processTokenProperties(uint256 level, uint256 number) public view
@@ -238,17 +172,7 @@ contract ElemonSummon is ReentrancyGuard, VRFConsumerBase, ConfirmedOwner(msg.se
         uint256 maxBodyPartIndex = bodyParts.length - 1;
         return bodyParts[number % maxBodyPartIndex];
     }
-
-    function _msgSender() internal view returns (address payable) {
-        return payable(msg.sender);
-    }
-
-    function _now() internal view returns (uint256) {
-        this;
-        return block.timestamp;
-    }
     
     event LevelPriceSetted(uint256 level, uint256 price);
     event Purchased(uint256 level, address account, uint256 time);
-    event TokenPropertyMinted(uint256 tokenId, ElemonProperty property);
 }
