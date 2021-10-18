@@ -4,14 +4,9 @@ pragma solidity 0.8.9;
 
 import "./interfaces/IERC20.sol";
 import "./interfaces/IERC721.sol";
+import "./interfaces/IElemonNFT.sol";
 import "./utils/Runnable.sol";
 import "./utils/ReentrancyGuard.sol";
-
-interface IElemonNFT{
-    function mint(address to, uint256 tokenId) external;
-    function setContractOwner(address newOwner) external;
-    function safeTransferFrom(address from, address to, uint256 tokenId) external;
-}
 
 contract ElemonSummon is Runnable, ReentrancyGuard{
     mapping(uint256 => uint256) public _levelPrices;

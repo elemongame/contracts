@@ -1,4 +1,6 @@
-pragma solidity 0.8.7;
+//SPDX-License-Identifier: MIT
+
+pragma solidity 0.8.9;
 
 import './Context.sol';
 
@@ -59,5 +61,3 @@ contract Ownable is Context {
     _owner = newOwner;
   }
 }
-
-// SPDX-License-Identifier: MIT

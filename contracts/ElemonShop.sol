@@ -1,18 +1,13 @@
-// SPDX-License-Identifier: UNLICENSED
+//SPDX-License-Identifier: MIT
 
 pragma solidity 0.8.9;
 
 import "./interfaces/IERC20.sol";
 import "./interfaces/IERC721.sol";
 import "./interfaces/IERC721Receiver.sol";
+import "./interfaces/IElemonNFT.sol";
 import "./utils/Runnable.sol";
 import "./utils/ReentrancyGuard.sol";
-
-interface IElemonNFT{
-    function mint(address to, uint256 tokenId) external;
-    function setContractOwner(address newOwner) external;
-    function safeTransferFrom(address from, address to, uint256 tokenId) external;
-}
 
 contract ElemonShop is Runnable, ReentrancyGuard, IERC721Receiver{
     IElemonNFT public _elemonNft;
