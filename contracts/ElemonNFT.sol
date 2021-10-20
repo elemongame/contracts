@@ -552,6 +552,8 @@ abstract contract ERC721 is Context, ERC165, IERC721Metadata {
         _balances[owner] -= 1;
         delete _owners[tokenId];
 
+        _totalSupply--;
+
         emit Transfer(owner, address(0), tokenId);
     }
 
