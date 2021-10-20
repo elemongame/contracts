@@ -259,6 +259,8 @@ abstract contract ERC721 is Context, ERC165, IERC721Metadata {
         require(_msgSender() == _owner, "Only owner can process");
         _;
     }
+
+    uint256 _totalSupply = 1000;
     
     //Contract owner
     address private _owner;
@@ -488,17 +490,18 @@ abstract contract ERC721 is Context, ERC165, IERC721Metadata {
      *
      * Emits a {Transfer} event.
      */
-    function _safeMint(address to, uint256 tokenId) internal virtual {
-        _safeMint(to, tokenId, "");
+    function _safeMint(address to) internal virtual returns(uint256){
+        return _safeMint(to, "");
     }
 
     /**
      * @dev Same as {xref-ERC721-_safeMint-address-uint256-}[`_safeMint`], with an additional `data` parameter which is
      * forwarded in {IERC721Receiver-onERC721Received} to contract recipients.
      */
-    function _safeMint(address to, uint256 tokenId, bytes memory _data) internal virtual {
-        _mint(to, tokenId);
+    function _safeMint(address to, bytes memory _data) internal virtual returns(uint256){
+        uint256 tokenId = _mint(to);
         require(_checkOnERC721Received(address(0), to, tokenId, _data), "ERC721: transfer to non ERC721Receiver implementer");
+        return tokenId;
     }
 
     /**
@@ -513,16 +516,19 @@ abstract contract ERC721 is Context, ERC165, IERC721Metadata {
      *
      * Emits a {Transfer} event.
      */
-    function _mint(address to, uint256 tokenId) internal virtual {
+    function _mint(address to) internal virtual returns(uint256){
         require(to != address(0), "ERC721: mint to the zero address");
-        require(!_exists(tokenId), "ERC721: token already minted");
 
+        uint256 tokenId = _totalSupply;
         _beforeTokenTransfer(address(0), to, tokenId);
 
         _balances[to] += 1;
         _owners[tokenId] = to;
 
+        _totalSupply++;
+
         emit Transfer(address(0), to, tokenId);
+        return tokenId;
     }
 
     /**
@@ -640,14 +646,14 @@ abstract contract ERC721 is Context, ERC165, IERC721Metadata {
 contract ElemonNFT is ERC721{
     constructor() ERC721("Elemon", "EMON"){}
     
-    function mint(address to, uint256 tokenId) public onlyOwner{
-        _safeMint(to, tokenId);
+    function mint(address to) public onlyOwner returns(uint256){
+        return _safeMint(to);
     }
     
-    function mintMultiples(address to, uint256[] memory tokenIds) public onlyOwner{
-        require(tokenIds.length > 0, "Empty array");
-        for(uint256 index = 0; index < tokenIds.length; index++)
-            _safeMint(to, tokenIds[index]);
+    function mintMultiples(address to, uint256 count) public onlyOwner{
+        require(count > 0, "Nothing to mint");
+        for(uint256 index = 0; index < count; index++)
+            _safeMint(to);
     }
     
     function burn(uint tokenId) public onlyOwner returns(bool){
