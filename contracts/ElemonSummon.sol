@@ -26,6 +26,9 @@ contract ElemonSummon is ReentrancyGuard, VRFConsumerBase, ConfirmedOwner(msg.se
     bytes32 public s_keyHash;
     uint256 public s_fee;
 
+    mapping (address => bool) _isBoughts;
+    uint256 public _affiliatePercent;   //Multipled by 1000
+
     mapping(bytes32 => RequestInfo) public _requestInfos;
     mapping(bytes32 => bool) public _requestExecuteds;
     
@@ -51,6 +54,7 @@ contract ElemonSummon is ReentrancyGuard, VRFConsumerBase, ConfirmedOwner(msg.se
 
     constructor(
         address paymentTokenAddress, address recepientTokenAddress, address elemonInfoAddress, address elemonNFTAddress,
+        uint256 affiliatePercent,
         address vrfCoordinator, address link, bytes32 keyHash, uint256 fee) VRFConsumerBase(vrfCoordinator, link){
         s_keyHash = keyHash;
         s_fee = fee;
@@ -59,6 +63,7 @@ contract ElemonSummon is ReentrancyGuard, VRFConsumerBase, ConfirmedOwner(msg.se
         _recepientTokenAddress = recepientTokenAddress;
         _elemonInfo = IElemonInfo(elemonInfoAddress);
         _elemonNFT = IElemonNFT(elemonNFTAddress);
+        _affiliatePercent = affiliatePercent;
     }
 
     function setRarityAbility(uint256 level, uint256 rarity, uint256 ability) external onlyOwner{
@@ -109,6 +114,10 @@ contract ElemonSummon is ReentrancyGuard, VRFConsumerBase, ConfirmedOwner(msg.se
         _recepientTokenAddress = recepientTokenAddress;
     }
 
+    function setAffiliatePercent(uint256 percent) external onlyOwner{
+        _affiliatePercent = percent;
+    }
+
     function setElemonInfo(address newAddress) external onlyOwner{
         require(newAddress != address(0), "Address 0");
         _elemonInfo = IElemonInfo(newAddress);
@@ -125,12 +134,19 @@ contract ElemonSummon is ReentrancyGuard, VRFConsumerBase, ConfirmedOwner(msg.se
         emit LevelPriceSetted(level, price);
     }
 
-    function open(uint256 level) external nonReentrant{
+    function open(uint256 level, address affiliateAddress) external nonReentrant{
         require(level > 0, "Level should be greater than 0");
         require(_recepientTokenAddress != address(0), "Recepient address is not setted");
         uint256 price = _levelPrices[level];
-        require(price > 0, "Price should be greater than 0");        
-        IERC20(_paymentTokenAddress).transferFrom(_msgSender(), _recepientTokenAddress, price);
+        require(price > 0, "Price should be greater than 0");
+
+        if(!_isBoughts[affiliateAddress]){
+            IERC20(_paymentTokenAddress).transferFrom(_msgSender(), _recepientTokenAddress, price);
+        }else{
+            uint256 affiliateQuantity = price * _affiliatePercent / 1000 / 100;
+            IERC20(_paymentTokenAddress).transferFrom(_msgSender(), affiliateAddress, affiliateQuantity);
+            IERC20(_paymentTokenAddress).transferFrom(_msgSender(), _recepientTokenAddress, price - affiliateQuantity);
+        }
 
         //Mint NFT
         uint256 tokenId = _elemonNFT.mint(msg.sender);
@@ -142,6 +158,8 @@ contract ElemonSummon is ReentrancyGuard, VRFConsumerBase, ConfirmedOwner(msg.se
             tokenId: tokenId,
             level: level
         });
+
+        _isBoughts[_msgSender()] = true;
         
         emit Purchased(level, _msgSender(), block.timestamp);
     }
