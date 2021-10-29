@@ -6,8 +6,11 @@ import "@openzeppelin/contracts/utils/Address.sol";
 import "./utils/Ownable.sol";
 import "./utils/ReentrancyGuard.sol";
 import "./interfaces/IERC20Metadata.sol";
+import "./interfaces/IERC721.sol";
+import "./interfaces/IElemonInfo.sol";
+import "./interfaces/IERC721Receiver.sol";
 
-contract ElemonStakingInitializer is Ownable, ReentrancyGuard {
+contract ElemonStakingInitializer is Ownable, ReentrancyGuard, IERC721Receiver {
     // The address of the smart chef factory
     address public SMART_CHEF_FACTORY;
 
@@ -44,12 +47,23 @@ contract ElemonStakingInitializer is Ownable, ReentrancyGuard {
     // The staked token
     IERC20Metadata public stakedToken;
 
+    uint256 public _totalStaked;
+    uint256 public _totalAllocation;
+
     // Info of each user that stakes tokens (stakedToken)
     mapping(address => UserInfo) public userInfo;
 
+    IERC721 public _elemonNFT;
+    IElemonInfo public _elemonInfo;
+
+    mapping(uint256 => uint256) public _boostBonusPercents;     //Multipled by 1000
+
     struct UserInfo {
-        uint256 amount; // How many staked tokens the user has provided
-        uint256 rewardDebt; // Reward debt
+        uint256 stakedAmount;  // How many staked tokens the user has provided
+        uint256 allocation;     //User allocation with boost included
+        uint256 rewardDebt; // Reward debt,
+        uint256 boostTokenId;
+        uint256 boostPercent;
     }
 
     event AdminTokenRecovery(address tokenRecovered, uint256 amount);
@@ -60,21 +74,20 @@ contract ElemonStakingInitializer is Ownable, ReentrancyGuard {
     event NewPoolLimit(uint256 poolLimitPerUser);
     event RewardsStop(uint256 blockNumber);
     event Withdraw(address indexed user, uint256 amount);
+    event Boosted(address indexed user, uint256 tokenId);
+    event Unboosted(address indexed user);
 
-    constructor() {
-        SMART_CHEF_FACTORY = msg.sender;
+    constructor(address elemonNftAddress, address elemonInfoAddress) {
+        SMART_CHEF_FACTORY = _msgSender();
+        _elemonNFT = IERC721(elemonNftAddress);
+        _elemonInfo = IElemonInfo(elemonInfoAddress);
+        _boostBonusPercents[1] = 2000;
+        _boostBonusPercents[2] = 2500;
+        _boostBonusPercents[3] = 3000;
+        _boostBonusPercents[4] = 3500;
+        _boostBonusPercents[5] = 4000;
     }
 
-    /*
-     * @notice Initialize the contract
-     * @param _stakedToken: staked token address
-     * @param _rewardToken: reward token address
-     * @param _rewardPerBlock: reward per block (in rewardToken)
-     * @param _startBlock: start block
-     * @param _bonusEndBlock: end block
-     * @param _poolLimitPerUser: pool limit per user in stakedToken (if any, else 0)
-     * @param _admin: admin address with ownership
-     */
     function initialize(
         IERC20Metadata _stakedToken,
         IERC20Metadata _rewardToken,
@@ -85,7 +98,7 @@ contract ElemonStakingInitializer is Ownable, ReentrancyGuard {
         address _admin
     ) external {
         require(!isInitialized, "Already initialized");
-        require(msg.sender == SMART_CHEF_FACTORY, "Not factory");
+        require(_msgSender() == SMART_CHEF_FACTORY, "Not factory");
 
         // Make this contract initialized
         isInitialized = true;
@@ -113,116 +126,160 @@ contract ElemonStakingInitializer is Ownable, ReentrancyGuard {
         transferOwnership(_admin);
     }
 
-    /*
-     * @notice Deposit staked tokens and collect reward tokens (if any)
-     * @param _amount: amount to withdraw (in rewardToken)
-     */
     function deposit(uint256 _amount) external nonReentrant {
-        UserInfo storage user = userInfo[msg.sender];
+        UserInfo storage user = userInfo[_msgSender()];
 
         if (hasUserLimit) {
-            require(_amount + user.amount <= poolLimitPerUser, "User amount above limit");
+            require(_amount + user.stakedAmount <= poolLimitPerUser, "User amount above limit");
         }
 
         _updatePool();
 
-        if (user.amount > 0) {
-            uint256 pending = user.amount * accTokenPerShare / PRECISION_FACTOR - user.rewardDebt;
+        if (user.allocation > 0) {
+            uint256 pending = _totalStaked * (user.allocation * accTokenPerShare / PRECISION_FACTOR - user.rewardDebt) / _totalAllocation;
             if (pending > 0) {
-                rewardToken.transfer(address(msg.sender), pending);
+                rewardToken.transfer(address(_msgSender()), pending);
             }
         }
 
         if (_amount > 0) {
-            user.amount = user.amount + _amount;
-            stakedToken.transferFrom(address(msg.sender), address(this), _amount);
+            user.stakedAmount += _amount;
+            _totalAllocation -= user.allocation;
+            user.allocation = user.stakedAmount + _getBonusAmount(user.stakedAmount, user.boostPercent);
+            stakedToken.transferFrom(address(_msgSender()), address(this), _amount);
+            _totalAllocation += user.allocation;
+            _totalStaked += _amount;
         }
 
-        user.rewardDebt = user.amount * accTokenPerShare / PRECISION_FACTOR;
+        user.rewardDebt = user.allocation * accTokenPerShare / PRECISION_FACTOR;
 
-        emit Deposit(msg.sender, _amount);
+        emit Deposit(_msgSender(), _amount);
     }
 
-    /*
-     * @notice Withdraw staked tokens and collect reward tokens
-     * @param _amount: amount to withdraw (in rewardToken)
-     */
-    function withdraw(uint256 _amount) external nonReentrant {
-        UserInfo storage user = userInfo[msg.sender];
-        require(user.amount >= _amount, "Amount to withdraw too high");
+    function boost(uint256 tokenId) external nonReentrant{
+        UserInfo storage user = userInfo[_msgSender()];
+        require(user.boostPercent == 0, "Have used boost before");
+        uint256 rarity = _elemonInfo.getRarity(tokenId);
+        require(rarity > 0, "Invalid rarity");
+
+        //Transfer NFT to contract
+        _elemonNFT.safeTransferFrom(_msgSender(), address(this), tokenId);
 
         _updatePool();
 
-        uint256 pending = user.amount * accTokenPerShare / PRECISION_FACTOR - user.rewardDebt;
+        _totalAllocation -= user.allocation;
+
+        user.boostPercent = _boostBonusPercents[rarity];
+        user.allocation = user.stakedAmount + _getBonusAmount(user.stakedAmount, user.boostPercent);
+        user.boostTokenId = tokenId;
+
+        _totalAllocation += user.allocation;
+
+        emit Boosted(_msgSender(), tokenId);
+    }
+
+    function unboost() external nonReentrant{
+        UserInfo storage user = userInfo[_msgSender()];
+        require(user.boostPercent > 0, "Have used boost before");
+
+        _updatePool();
+
+        //Transfer NFT to user
+        _elemonNFT.safeTransferFrom(address(this), _msgSender(), user.boostTokenId);
+
+        _totalAllocation -= user.allocation;
+        user.allocation = user.stakedAmount;
+        user.boostPercent = 0;
+        user.boostTokenId = 0;
+        _totalAllocation += user.allocation;
+
+        emit Unboosted(_msgSender());
+    }
+
+    function withdraw(uint256 _amount) external nonReentrant {
+        UserInfo storage user = userInfo[_msgSender()];
+        require(user.allocation >= _amount, "Amount to withdraw too high");
+
+        _updatePool();
+
+        uint256 pending = _totalStaked * (user.allocation * accTokenPerShare / PRECISION_FACTOR - user.rewardDebt) / _totalAllocation;
 
         if (_amount > 0) {
-            user.amount = user.amount - _amount;
-            stakedToken.transfer(address(msg.sender), _amount);
+            user.stakedAmount -= _amount;
+            _totalAllocation -= user.allocation;
+            user.allocation = user.stakedAmount + _getBonusAmount(user.stakedAmount, user.boostPercent);
+            stakedToken.transfer(address(_msgSender()), _amount);
+            _totalAllocation += user.allocation;
+            _totalStaked -= _amount;
         }
 
         if (pending > 0) {
-            rewardToken.transfer(address(msg.sender), pending);
+            rewardToken.transfer(address(_msgSender()), pending);
         }
 
-        user.rewardDebt = user.amount * accTokenPerShare / PRECISION_FACTOR;
+        user.rewardDebt = user.allocation * accTokenPerShare / PRECISION_FACTOR;
 
-        emit Withdraw(msg.sender, _amount);
+        emit Withdraw(_msgSender(), _amount);
     }
 
-    /*
-     * @notice Withdraw staked tokens without caring about rewards rewards
-     * @dev Needs to be for emergency.
-     */
     function emergencyWithdraw() external nonReentrant {
-        UserInfo storage user = userInfo[msg.sender];
-        uint256 amountToTransfer = user.amount;
-        user.amount = 0;
+        UserInfo storage user = userInfo[_msgSender()];
+
+        _totalAllocation -= user.allocation;
+        _totalStaked -= user.stakedAmount;
+
+        uint256 amountToTransfer = user.stakedAmount;
+
+        user.stakedAmount = 0;
+        user.allocation = 0;
         user.rewardDebt = 0;
+        user.boostPercent = 0;
 
         if (amountToTransfer > 0) {
-            stakedToken.transfer(address(msg.sender), amountToTransfer);
+            stakedToken.transfer(address(_msgSender()), amountToTransfer);
         }
 
-        emit EmergencyWithdraw(msg.sender, user.amount);
+        if(user.boostTokenId > 0){
+            _elemonNFT.safeTransferFrom(address(this), _msgSender(), user.boostTokenId);
+        }
+
+        user.boostTokenId = 0;
+
+        emit EmergencyWithdraw(_msgSender(), user.allocation);
     }
 
-    /*
-     * @notice Stop rewards
-     * @dev Only callable by owner. Needs to be for emergency.
-     */
     function emergencyRewardWithdraw(uint256 _amount) external onlyOwner {
-        rewardToken.transfer(address(msg.sender), _amount);
+        rewardToken.transfer(address(_msgSender()), _amount);
     }
 
-    /**
-     * @notice It allows the admin to recover wrong tokens sent to the contract
-     * @param _tokenAddress: the address of the token to withdraw
-     * @param _tokenAmount: the number of tokens to withdraw
-     * @dev This function is only callable by admin.
-     */
     function recoverWrongTokens(address _tokenAddress, uint256 _tokenAmount) external onlyOwner {
         require(_tokenAddress != address(stakedToken), "Cannot be staked token");
         require(_tokenAddress != address(rewardToken), "Cannot be reward token");
 
-        IERC20(_tokenAddress).transfer(address(msg.sender), _tokenAmount);
+        IERC20(_tokenAddress).transfer(address(_msgSender()), _tokenAmount);
 
         emit AdminTokenRecovery(_tokenAddress, _tokenAmount);
     }
 
-    /*
-     * @notice Stop rewards
-     * @dev Only callable by owner
-     */
     function stopReward() external onlyOwner {
         bonusEndBlock = block.number;
     }
 
-    /*
-     * @notice Update pool limit per user
-     * @dev Only callable by owner.
-     * @param _hasUserLimit: whether the limit remains forced
-     * @param _poolLimitPerUser: new pool limit per user
-     */
+    function setElemonNFT(address newAddress) external onlyOwner{
+        require(newAddress != address(0), "Zero address");
+        _elemonNFT = IERC721(newAddress);
+    }
+
+    function setElemonInfo(address newAddress) external onlyOwner{
+        require(newAddress != address(0), "Zero address");
+        _elemonInfo = IElemonInfo(newAddress);
+    }
+
+    function setBoostBonusPercents(uint256 level, uint256 percent) external onlyOwner{
+        require(level > 0 && percent > 0, "Zero input");
+        _boostBonusPercents[level] = percent;
+    }
+
     function updatePoolLimitPerUser(bool _hasUserLimit, uint256 _poolLimitPerUser) external onlyOwner {
         require(hasUserLimit, "Must be set");
         if (_hasUserLimit) {
@@ -235,23 +292,12 @@ contract ElemonStakingInitializer is Ownable, ReentrancyGuard {
         emit NewPoolLimit(poolLimitPerUser);
     }
 
-    /*
-     * @notice Update reward per block
-     * @dev Only callable by owner.
-     * @param _rewardPerBlock: the reward per block
-     */
     function updateRewardPerBlock(uint256 _rewardPerBlock) external onlyOwner {
         require(block.number < startBlock, "Pool has started");
         rewardPerBlock = _rewardPerBlock;
         emit NewRewardPerBlock(_rewardPerBlock);
     }
 
-    /**
-     * @notice It allows the admin to update start and end blocks
-     * @dev This function is only callable by owner.
-     * @param _startBlock: the new start block
-     * @param _bonusEndBlock: the new end block
-     */
     function updateStartAndEndBlocks(uint256 _startBlock, uint256 _bonusEndBlock) external onlyOwner {
         require(block.number < startBlock, "Pool has started");
         require(_startBlock < _bonusEndBlock, "New startBlock must be lower than new endBlock");
@@ -266,23 +312,25 @@ contract ElemonStakingInitializer is Ownable, ReentrancyGuard {
         emit NewStartAndEndBlocks(_startBlock, _bonusEndBlock);
     }
 
-    /*
-     * @notice View function to see pending reward on frontend.
-     * @param _user: user address
-     * @return Pending reward for a given user
-     */
     function pendingReward(address _user) external view returns (uint256) {
+        if(_totalAllocation == 0)
+            return 0;
         UserInfo storage user = userInfo[_user];
-        uint256 stakedTokenSupply = stakedToken.balanceOf(address(this));
-        if (block.number > lastRewardBlock && stakedTokenSupply != 0) {
+        if (block.number > lastRewardBlock && _totalStaked != 0) {
             uint256 multiplier = _getMultiplier(lastRewardBlock, block.number);
             uint256 earnedTokenReward = multiplier * rewardPerBlock;
             uint256 adjustedTokenPerShare =
-                accTokenPerShare + (earnedTokenReward * PRECISION_FACTOR / stakedTokenSupply);
-            return user.amount * adjustedTokenPerShare / PRECISION_FACTOR - user.rewardDebt;
+                accTokenPerShare + (earnedTokenReward * PRECISION_FACTOR / _totalAllocation);
+            return _totalStaked *  (user.allocation * adjustedTokenPerShare / PRECISION_FACTOR - user.rewardDebt) / _totalAllocation;
         } else {
-            return user.amount * accTokenPerShare / PRECISION_FACTOR - user.rewardDebt;
+            return _totalStaked * (user.allocation * accTokenPerShare / PRECISION_FACTOR - user.rewardDebt) / _totalAllocation;
         }
+    }
+
+    function onERC721Received(address operator, address from, uint256 tokenId, bytes calldata data) external view override returns (bytes4){
+        return bytes4(
+                keccak256("onERC721Received(address,address,uint256,bytes)")
+            );
     }
 
     /*
@@ -293,24 +341,17 @@ contract ElemonStakingInitializer is Ownable, ReentrancyGuard {
             return;
         }
 
-        uint256 stakedTokenSupply = stakedToken.balanceOf(address(this));
-
-        if (stakedTokenSupply == 0) {
+        if (_totalAllocation == 0) {
             lastRewardBlock = block.number;
             return;
         }
 
         uint256 multiplier = _getMultiplier(lastRewardBlock, block.number);
         uint256 earnedTokenReward = multiplier * rewardPerBlock;
-        accTokenPerShare = accTokenPerShare + earnedTokenReward * PRECISION_FACTOR / stakedTokenSupply;
+        accTokenPerShare = accTokenPerShare + earnedTokenReward * PRECISION_FACTOR / _totalAllocation;
         lastRewardBlock = block.number;
     }
 
-    /*
-     * @notice Return reward multiplier over the given _from to _to block.
-     * @param _from: block to start
-     * @param _to: block to finish
-     */
     function _getMultiplier(uint256 _from, uint256 _to) internal view returns (uint256) {
         if (_to <= bonusEndBlock) {
             return _to - _from;
@@ -319,5 +360,9 @@ contract ElemonStakingInitializer is Ownable, ReentrancyGuard {
         } else {
             return bonusEndBlock - _from;
         }
+    }
+
+    function _getBonusAmount(uint256 amount, uint256 percent) internal pure returns(uint256){
+        return amount * percent / 100 / 1000;
     }
 }

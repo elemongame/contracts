@@ -11,8 +11,10 @@ contract ElemonIDO is Ownable, ReentrancyGuard {
     address public _idoRecepientAddress;
 
     //The token price for BUSD, multipled by 1000
-    uint256 public constant ELEMON_PRICE = 90;      //0.09
-    uint256 public constant ONE_THOUSAND = 1000;
+    uint256 public constant ELMON_ALLOCATION = 5555555555000000000000;       //5,555.555555 ELMON each user
+    uint256 public constant PAID_BUSD = 50000000000000000000;               //50 BUSD for each user
+
+    uint256 public _totalBought = 0;
 
     uint256 public _startBlock;
     uint256 public _endBlock;
@@ -20,8 +22,8 @@ contract ElemonIDO is Ownable, ReentrancyGuard {
     mapping(uint256 => uint256) public _claimablePercents;
 
     //Store the number of token that user can buy
-    //Mapping user address and the number of ELEMON user can buy
-    mapping(address => uint256) public _userSlots;
+    //Mapping user address and the number of ELMON user can buy
+    mapping(address => bool) public _whiteLists;
     mapping(address => uint256) public _userBoughts;
     mapping(address => uint256) public _claimCounts;
 
@@ -41,26 +43,17 @@ contract ElemonIDO is Ownable, ReentrancyGuard {
         //_claimablePercents[] = 25;
     }
 
-    function buy(uint256 busdQuantity) external nonReentrant {
+    function register() external nonReentrant {
         require(_idoRecepientAddress != address(0), "IDO recepient address has not been setted");
-        require(block.number >= _startBlock && block.number <= _endBlock, "Can not buy at this time");
-        require(_userSlots[_msgSender()] > 0, "You are not in whitelist");
-        uint256 maxTokenCanBuy = _userSlots[_msgSender()] - _userBoughts[_msgSender()];
-        require(maxTokenCanBuy > 0, "You reach to maximum to buy");
+        require(block.number >= _startBlock && block.number <= _endBlock, "Can not register at this time");
+        require(_whiteLists[_msgSender()], "You are not in whitelist");
+        require(_userBoughts[_msgSender()] == 0, "You have registerd before");
         
-        uint256 tokenQuantity = busdQuantity * ONE_THOUSAND / ELEMON_PRICE;
-        require(tokenQuantity > 0, "No token to buy");
+        _busdToken.transferFrom(_msgSender(), _idoRecepientAddress , PAID_BUSD);
+        _userBoughts[_msgSender()] = ELMON_ALLOCATION;
+        _totalBought += ELMON_ALLOCATION;
 
-        if(tokenQuantity > maxTokenCanBuy){
-            tokenQuantity = maxTokenCanBuy;
-
-            busdQuantity = tokenQuantity * ELEMON_PRICE / ONE_THOUSAND;
-        }
-
-        _busdToken.transferFrom(_msgSender(), _idoRecepientAddress , busdQuantity);
-        _userBoughts[_msgSender()] += tokenQuantity;
-
-        emit Purchased(_msgSender(), tokenQuantity);
+        emit Registered(_msgSender());
     }
 
     function claim() external nonReentrant{
@@ -146,6 +139,20 @@ contract ElemonIDO is Ownable, ReentrancyGuard {
         }
     }
 
-    event Purchased(address account, uint256 tokenQuantity);
+    function addToWhiteList(address[] memory accounts) external onlyOwner{
+        require(accounts.length > 0, "Invalid input");
+        for(uint256 index = 0; index < accounts.length; index++){
+            _whiteLists[accounts[index]] = true;
+        }
+    }
+
+    function removeFromWhiteList(address[] memory accounts) external onlyOwner{
+        require(accounts.length > 0, "Invalid input");
+        for(uint256 index = 0; index < accounts.length; index++){
+            _whiteLists[accounts[index]] = false;
+        }
+    }
+
+    event Registered(address account);
     event Claimed(address account, uint256 tokenQuantity);
 }

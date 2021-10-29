@@ -646,20 +646,27 @@ abstract contract ERC721 is Context, ERC165, IERC721Metadata {
 }
 
 contract ElemonNFT is ERC721{
-    constructor() ERC721("Elemon", "EMON"){}
-    
-    function mint(address to) public onlyOwner returns(uint256){
-        return _safeMint(to);
+    modifier onlyOperator{
+        require(_operators[_msgSender()], "Forbidden");
+        _;
+    }
+
+    mapping(address => bool) public _operators;
+
+    constructor() ERC721("Elemon", "ELMON"){
+        _operators[_msgSender()] = true;
     }
     
-    function mintMultiples(address to, uint256 count) public onlyOwner{
-        require(count > 0, "Nothing to mint");
-        for(uint256 index = 0; index < count; index++)
-            _safeMint(to);
+    function mint(address to) public onlyOperator returns(uint256){
+        return _safeMint(to);
     }
     
     function burn(uint tokenId) public onlyOwner returns(bool){
         _burn(tokenId);
         return true;
+    }
+
+    function setOperator(address operatorAddress, bool value) public onlyOwner{
+        _operators[operatorAddress] = value;
     }
 }

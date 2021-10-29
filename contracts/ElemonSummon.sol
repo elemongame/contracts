@@ -30,7 +30,6 @@ contract ElemonSummon is ReentrancyGuard, VRFConsumerBase, ConfirmedOwner(msg.se
     uint256 public _affiliatePercent;   //Multipled by 1000
 
     mapping(bytes32 => RequestInfo) public _requestInfos;
-    mapping(bytes32 => bool) public _requestExecuteds;
     
     //Rarity: 1,2,3,4,5
     uint256[] public _rarities = [1, 2, 3, 4, 5];
@@ -52,6 +51,12 @@ contract ElemonSummon is ReentrancyGuard, VRFConsumerBase, ConfirmedOwner(msg.se
     //Rarity => Base card id => list of quality
     mapping(uint256 => mapping(uint256 => uint256[])) public _qualities;
 
+    //Classes
+    //Rarity => Base card id => list of class
+    mapping(uint256 => mapping(uint256 => uint256[])) public _classes;
+
+    uint256 internal _processValue = 0;
+
     constructor(
         address paymentTokenAddress, address recepientTokenAddress, address elemonInfoAddress, address elemonNFTAddress,
         uint256 affiliatePercent,
@@ -64,6 +69,54 @@ contract ElemonSummon is ReentrancyGuard, VRFConsumerBase, ConfirmedOwner(msg.se
         _elemonInfo = IElemonInfo(elemonInfoAddress);
         _elemonNFT = IElemonNFT(elemonNFTAddress);
         _affiliatePercent = affiliatePercent;
+
+        _levelPrices[1] = 100000000000000000000;
+        _levelPrices[2] = 500000000000000000000;
+        _levelPrices[3] = 1000000000000000000000;
+
+        _rarityAbilities[1][1] = 6000;
+        _rarityAbilities[1][2] = 3800;
+        _rarityAbilities[1][3] = 189;
+        _rarityAbilities[1][4] = 10;
+        _rarityAbilities[1][5] = 1;
+
+        _rarityAbilities[2][1] = 0;
+        _rarityAbilities[2][2] = 50;
+        _rarityAbilities[2][3] = 35;
+        _rarityAbilities[2][4] = 15;
+        _rarityAbilities[2][5] = 0;
+
+        _rarityAbilities[3][1] = 0;
+        _rarityAbilities[3][2] = 0;
+        _rarityAbilities[3][3] = 50;
+        _rarityAbilities[3][4] = 40;
+        _rarityAbilities[3][5] = 10;
+
+        _baseCardIds[1] = [4,6,9,10,12,16,17,20];
+        _baseCardIds[2] = [4,6,9,10,12,16,17,20];
+        _baseCardIds[3] = [4,6,9,10,12,16,17,20];
+        _baseCardIds[4] = [17];
+    }
+
+    function setDefaultClass() external onlyOwner{
+        //CLASS
+        uint256[] memory baseCardIds = new uint256[](8);
+        baseCardIds[0] = 4;
+        baseCardIds[1] = 6;
+        baseCardIds[2] = 9;
+        baseCardIds[3] = 10;
+        baseCardIds[4] = 12;
+        baseCardIds[5] = 16;
+        baseCardIds[6] = 17;
+        baseCardIds[7] = 20;
+        for(uint256 level = 1; level <= 3; level++){
+            for(uint256 baseCardIdIndex = 0; baseCardIdIndex < baseCardIds.length; baseCardIdIndex++){
+                _classes[level][baseCardIdIndex] = 
+                [1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000];
+            }
+        }
+
+        _classes[4][17] = [1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000];
     }
 
     function setRarityAbility(uint256 level, uint256 rarity, uint256 ability) external onlyOwner{
@@ -102,6 +155,13 @@ contract ElemonSummon is ReentrancyGuard, VRFConsumerBase, ConfirmedOwner(msg.se
         require(baseCardId > 0, "baseCardId should be greater than 0");
         require(qualities.length > 0, "qualities should be not empty");
         _qualities[rarity][baseCardId] = qualities;
+    }
+
+    function setClass(uint256 rarity, uint256 baseCardId, uint256[] memory classes) external onlyOwner{
+        require(rarity > 0, "rarity should be greater than 0");
+        require(baseCardId > 0, "baseCardId should be greater than 0");
+        require(classes.length > 0, "classes should be not empty");
+        _classes[rarity][baseCardId] = classes;
     }
 
     function setPaymentTokenAddress(address paymentTokenAddress) external onlyOwner{
@@ -161,7 +221,7 @@ contract ElemonSummon is ReentrancyGuard, VRFConsumerBase, ConfirmedOwner(msg.se
 
         _isBoughts[_msgSender()] = true;
         
-        emit Purchased(level, _msgSender(), block.timestamp);
+        emit Purchased(_msgSender(), tokenId, level, block.timestamp);
     }
 
     function setKeyHash(bytes32 keyHash) public onlyOwner {
@@ -172,36 +232,25 @@ contract ElemonSummon is ReentrancyGuard, VRFConsumerBase, ConfirmedOwner(msg.se
         s_fee = fee;
     }
 
-    function fulfillRandomness(bytes32 requestId, uint256 randomness) internal override {
-        require(!_requestExecuteds[requestId], "Duplicated requestId");
+    function withdrawToken(address tokenAddress, address recepient, uint256 value) public onlyOwner {
+        IERC20(tokenAddress).transfer(recepient, value);
+    }
 
-        RequestInfo memory requestInfo = _requestInfos[requestId];
+    function fulfillRandomness(bytes32 requestId, uint256 randomness) internal override {
+        RequestInfo storage requestInfo = _requestInfos[requestId];
         require(requestInfo.tokenId > 0, "Invalid request");
 
-        (uint256 rarity, uint256 baseCardId, uint256 bodyPart01, 
-        uint256 bodyPart02, uint256 bodyPart03, uint256 bodyPart04, 
-        uint256 bodyPart05, uint256 bodyPart06, uint256 quality) = _processTokenProperties(requestInfo.level, randomness);
-
-        _elemonInfo.setInfo(requestInfo.tokenId, rarity, baseCardId, bodyPart01, bodyPart02, bodyPart03, bodyPart04, bodyPart05, bodyPart06, quality);
-
-        _requestExecuteds[requestId] = true;
-        emit ElemonOpened(requestInfo.tokenId, rarity, baseCardId, bodyPart01, bodyPart02, bodyPart03, bodyPart04, bodyPart05, bodyPart06, quality);
-    }
-    
-    function _processTokenProperties(uint256 level, uint256 number) public view
-        returns(uint256 rarity, uint256 baseCardId, uint256 bodyPart01, 
-                uint256 bodyPart02, uint256 bodyPart03, uint256 bodyPart04, 
-                uint256 bodyPart05, uint256 bodyPart06, uint256 quality){
         //Get rarity
-        uint256 processValue = 0;
+        _processValue = 0;
         for(uint256 index = 0; index < _rarities.length; index++){
-            processValue += _rarityAbilities[level][_rarities[index]];
+            _processValue += _rarityAbilities[requestInfo.level][_rarities[index]];
         }
-        uint256 rarityNumber = number % processValue + 1;
-        processValue = 0;
+        uint256 rarityNumber = randomness % _processValue + 1;
+        _processValue = 0;
+        uint256 rarity = 0;
         for(uint256 index = 0; index < _rarities.length; index++){
-            processValue += _rarityAbilities[level][_rarities[index]];
-            if(rarityNumber <= processValue){
+            _processValue += _rarityAbilities[requestInfo.level][_rarities[index]];
+            if(rarityNumber <= _processValue){
                 rarity = _rarities[index];
                 break;
             }
@@ -209,30 +258,54 @@ contract ElemonSummon is ReentrancyGuard, VRFConsumerBase, ConfirmedOwner(msg.se
 
         //Get base cardId
         uint256[] memory baseCardIds = _baseCardIds[rarity];
-        processValue = baseCardIds.length - 1;
-        baseCardId = baseCardIds[number % processValue];
+        _processValue = baseCardIds.length - 1;
+        uint256 baseCardId = baseCardIds[randomness % _processValue];
 
         //Get body parts
-        bodyPart01 = _getBodyPartItem(number, _bodyParts[rarity][baseCardId][1]);
-        bodyPart02 = _getBodyPartItem(number, _bodyParts[rarity][baseCardId][2]);
-        bodyPart03 = _getBodyPartItem(number, _bodyParts[rarity][baseCardId][3]);
-        bodyPart04 = _getBodyPartItem(number, _bodyParts[rarity][baseCardId][4]);
-        bodyPart05 = _getBodyPartItem(number, _bodyParts[rarity][baseCardId][5]);
-        bodyPart06 = _getBodyPartItem(number, _bodyParts[rarity][baseCardId][6]);
+        uint256 bodyPart01 = _getBodyPartItem(randomness, _bodyParts[rarity][baseCardId][1]);
+        uint256 bodyPart02 = _getBodyPartItem(randomness, _bodyParts[rarity][baseCardId][2]);
+        uint256 bodyPart03 = _getBodyPartItem(randomness, _bodyParts[rarity][baseCardId][3]);
+        uint256 bodyPart04 = _getBodyPartItem(randomness, _bodyParts[rarity][baseCardId][4]);
+        uint256 bodyPart05 = _getBodyPartItem(randomness, _bodyParts[rarity][baseCardId][5]);
+        uint256 bodyPart06 = _getBodyPartItem(randomness, _bodyParts[rarity][baseCardId][6]);
 
-        quality = _getBodyPartItem(number, _qualities[rarity][baseCardId]);
+        uint256 quality = _getBodyPartItem(randomness, _qualities[rarity][baseCardId]);
+        uint256 class = _getBodyPartItem(randomness, _classes[rarity][baseCardId]);
+
+        _elemonInfo.setInfo(requestInfo.tokenId, rarity, baseCardId, 
+            bodyPart01, bodyPart02, bodyPart03, bodyPart04, bodyPart05, bodyPart06, 
+            quality, class);
+
+        requestInfo.tokenId = 0;
+
+        emit ElemonOpened(requestInfo.tokenId, rarity, 
+            baseCardId, bodyPart01, bodyPart02, bodyPart03, 
+            bodyPart04, bodyPart05, bodyPart06, quality, class);
     }
-
+    
     function _getBodyPartItem(uint256 number, uint256[] memory bodyParts) internal pure returns(uint256){
-        uint256 maxBodyPartIndex = bodyParts.length - 1;
-        return bodyParts[number % maxBodyPartIndex];
+        uint256 processValue = 0;
+        for(uint256 index = 0; index < bodyParts.length; index++){
+            processValue += bodyParts[index];
+        }
+        uint256 rarityNumber = number % processValue + 1;
+        processValue = 0;
+        for(uint256 index = 0; index < bodyParts.length; index++){
+            processValue += bodyParts[index];
+            if(rarityNumber <= processValue){
+                return index + 1;
+            }
+        }
+        return 1;
     }
 
-    function _msgSender() internal returns(address){
+    function _msgSender() internal view returns(address){
         return msg.sender;
     }
     
     event LevelPriceSetted(uint256 level, uint256 price);
-    event Purchased(uint256 level, address account, uint256 time);
-    event ElemonOpened(uint256 tokenId, uint256 rarity, uint256 baseCardId, uint256 bodyPart01, uint256 bodyPart02, uint256 bodyPart03, uint256 bodyPart04, uint256 bodyPart05, uint256 bodyPart06, uint256 quality);
+    event Purchased(address account, uint256 tokenId, uint256 level, uint256 time);
+    event ElemonOpened(uint256 tokenId, uint256 rarity, uint256 baseCardId, 
+        uint256 bodyPart01, uint256 bodyPart02, uint256 bodyPart03, uint256 bodyPart04, uint256 bodyPart05, uint256 bodyPart06, 
+        uint256 quality, uint256 class);
 }
