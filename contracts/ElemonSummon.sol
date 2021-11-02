@@ -31,8 +31,8 @@ contract ElemonSummon is ReentrancyGuard, VRFConsumerBase, ConfirmedOwner(msg.se
 
     mapping(bytes32 => RequestInfo) public _requestInfos;
     
-    //Rarity: 1,2,3,4,5
-    uint256[] public _rarities = [1, 2, 3, 4, 5];
+    //Rarity: 1,2,3,4
+    uint256[] public _rarities;
     
     //Ability to appear Rarity
     //Level -> Rarity -> Ability
@@ -70,6 +70,8 @@ contract ElemonSummon is ReentrancyGuard, VRFConsumerBase, ConfirmedOwner(msg.se
         _elemonNFT = IElemonNFT(elemonNFTAddress);
         _affiliatePercent = affiliatePercent;
 
+        _rarities = [1, 2, 3, 4];
+
         _levelPrices[1] = 100000000000000000000;
         _levelPrices[2] = 500000000000000000000;
         _levelPrices[3] = 1000000000000000000000;
@@ -97,26 +99,10 @@ contract ElemonSummon is ReentrancyGuard, VRFConsumerBase, ConfirmedOwner(msg.se
         _baseCardIds[3] = [4,6,9,10,12,16,17,20];
         _baseCardIds[4] = [17];
     }
-
-    function setDefaultClass() external onlyOwner{
-        //CLASS
-        uint256[] memory baseCardIds = new uint256[](8);
-        baseCardIds[0] = 4;
-        baseCardIds[1] = 6;
-        baseCardIds[2] = 9;
-        baseCardIds[3] = 10;
-        baseCardIds[4] = 12;
-        baseCardIds[5] = 16;
-        baseCardIds[6] = 17;
-        baseCardIds[7] = 20;
-        for(uint256 level = 1; level <= 3; level++){
-            for(uint256 baseCardIdIndex = 0; baseCardIdIndex < baseCardIds.length; baseCardIdIndex++){
-                _classes[level][baseCardIdIndex] = 
-                [1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000];
-            }
-        }
-
-        _classes[4][17] = [1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000,1000000];
+    
+    function setRarities(uint256[] memory rarities) external onlyOwner{
+        require(rarities.length > 0, "Invalid parameters");
+        _rarities = rarities;
     }
 
     function setRarityAbility(uint256 level, uint256 rarity, uint256 ability) external onlyOwner{
@@ -148,6 +134,23 @@ contract ElemonSummon is ReentrancyGuard, VRFConsumerBase, ConfirmedOwner(msg.se
         require(part > 0 && part <= 6, "part is invalid");
         require(bodyParts.length > 0, "bodyParts should be not empty");
         _bodyParts[rarity][baseCardId][part] = bodyParts;
+    }
+
+    function setProperties(uint256 rarity, uint256 baseCardId, 
+        uint256[] memory bodyParts1, uint256[] memory bodyParts2, uint256[] memory bodyParts3, 
+        uint256[] memory bodyParts4, uint256[] memory bodyParts5, uint256[] memory bodyParts6,
+        uint256[] memory qualities, uint256[] memory classes) external onlyOwner{
+        require(rarity > 0, "rarity should be greater than 0");
+        require(baseCardId > 0, "baseCardId should be greater than 0");
+        _bodyParts[rarity][baseCardId][1] = bodyParts1;
+        _bodyParts[rarity][baseCardId][2] = bodyParts2;
+        _bodyParts[rarity][baseCardId][3] = bodyParts3;
+        _bodyParts[rarity][baseCardId][4] = bodyParts4;
+        _bodyParts[rarity][baseCardId][5] = bodyParts5;
+        _bodyParts[rarity][baseCardId][6] = bodyParts6;
+        
+        _qualities[rarity][baseCardId] = qualities;
+        _classes[rarity][baseCardId] = classes;
     }
 
     function setQuality(uint256 rarity, uint256 baseCardId, uint256[] memory qualities) external onlyOwner{
@@ -238,8 +241,7 @@ contract ElemonSummon is ReentrancyGuard, VRFConsumerBase, ConfirmedOwner(msg.se
 
     function fulfillRandomness(bytes32 requestId, uint256 randomness) internal override {
         RequestInfo storage requestInfo = _requestInfos[requestId];
-        require(requestInfo.tokenId > 0, "Invalid request");
-
+        require(requestInfo.tokenId > 0, "Request is invalid");
         //Get rarity
         _processValue = 0;
         for(uint256 index = 0; index < _rarities.length; index++){
@@ -256,10 +258,17 @@ contract ElemonSummon is ReentrancyGuard, VRFConsumerBase, ConfirmedOwner(msg.se
             }
         }
 
+        require(rarity > 0, "Fail to get rarity");
+
         //Get base cardId
         uint256[] memory baseCardIds = _baseCardIds[rarity];
         _processValue = baseCardIds.length - 1;
-        uint256 baseCardId = baseCardIds[randomness % _processValue];
+
+        uint256 baseCardId = 0;
+        if(_processValue == 0)
+            baseCardId = baseCardIds[_processValue];
+        else
+            baseCardId = baseCardIds[randomness % _processValue];
 
         //Get body parts
         uint256 bodyPart01 = _getBodyPartItem(randomness, _bodyParts[rarity][baseCardId][1]);
@@ -276,9 +285,10 @@ contract ElemonSummon is ReentrancyGuard, VRFConsumerBase, ConfirmedOwner(msg.se
             bodyPart01, bodyPart02, bodyPart03, bodyPart04, bodyPart05, bodyPart06, 
             quality, class);
 
+        uint256 tokenId = requestInfo.tokenId;
         requestInfo.tokenId = 0;
 
-        emit ElemonOpened(requestInfo.tokenId, rarity, 
+        emit ElemonOpened(tokenId, rarity, 
             baseCardId, bodyPart01, bodyPart02, bodyPart03, 
             bodyPart04, bodyPart05, bodyPart06, quality, class);
     }
