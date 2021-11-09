@@ -27,20 +27,18 @@ contract ElemonIDO is Ownable, ReentrancyGuard {
     mapping(address => uint256) public _userBoughts;
     mapping(address => uint256) public _claimCounts;
 
-    constructor(
-        address busdAddress, address elmonAddress, address idoRecepientAddress,
-        uint256 startBlock, uint256 endBlock){
-        _busdToken = IERC20(busdAddress);
+    constructor(address elmonAddress, address idoRecepientAddress){
+        _busdToken = IERC20(0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56);
         _elmonToken = IERC20(elmonAddress);
         _idoRecepientAddress = idoRecepientAddress;
-        _startBlock = startBlock;
-        _endBlock = endBlock;
+        _startBlock = 12385340;
+        _endBlock = 12402140;
 
         //THIS PROPERTIES WILL BE SET WHEN DEPLOYING CONTRACT
-        //_claimableBlocks = [];
-        //_claimablePercents[] = 50;
-        //_claimablePercents[] = 25;
-        //_claimablePercents[] = 25;
+        _claimableBlocks = [12419550, 13283550, 14175750];
+        _claimablePercents[12419550] = 50;
+        _claimablePercents[13283550] = 25;
+        _claimablePercents[14176350] = 25;
     }
 
     function register() external nonReentrant {
@@ -120,7 +118,6 @@ contract ElemonIDO is Ownable, ReentrancyGuard {
     }
 
     function setIdoBlocks(uint256 startBlock, uint256 endBlock) external onlyOwner{
-        require(startBlock > block.number, "Start block should be greater than current block");
         require(startBlock < endBlock, "Start block should be less than end block");
         _startBlock = startBlock;
         _endBlock = endBlock;

@@ -7,19 +7,24 @@ import "./interfaces/IERC721Receiver.sol";
 import "./interfaces/IERC20.sol";
 import "./interfaces/IERC721.sol";
 import "./utils/ReentrancyGuard.sol";
+import "./utils/Runnable.sol";
 
-contract ElemonMarketplace is Ownable, ReentrancyGuard, IERC721Receiver{
+contract ElemonMarketplace is Runnable, ReentrancyGuard, IERC721Receiver{
     struct MarketHistory{
         address buyer;
         address seller;
         uint256 price;
         uint256 time;
     }
+
+    address constant public BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
     
     address public _elemonTokenAddress;
     address public _elemonNftAddress;
+    address public _feeRecepientAddress;
     
-    uint256 private _feePercent;       //Multipled by 1000
+    uint256 private _burningFeePercent;       //Multipled by 1000
+    uint256 private _ecoFeePercent;       //Multipled by 1000
     uint256 constant public MULTIPLIER = 1000;
     
     //Mapping between tokenId and token price
@@ -33,7 +38,9 @@ contract ElemonMarketplace is Ownable, ReentrancyGuard, IERC721Receiver{
         require(nftAddress != address(0), "Address 0");
         _elemonTokenAddress = tokenAddress;
         _elemonNftAddress = nftAddress;
-        _feePercent = 2000;        //2%
+        _feeRecepientAddress = _msgSender();
+        _burningFeePercent = 2000;        //2%
+        _ecoFeePercent = 2000;        //2%
     }
     
     /**
@@ -41,7 +48,7 @@ contract ElemonMarketplace is Ownable, ReentrancyGuard, IERC721Receiver{
      * User transfer his NFT to contract to create selling order
      * Event is used to retreive logs and histories
      */
-    function createSellOrder(uint256 tokenId, uint256 price) external nonReentrant returns(bool){
+    function createSellOrder(uint256 tokenId, uint256 price) external whenRunning nonReentrant returns(bool){
         //Validate
         require(_tokenOwners[tokenId] == address(0), "Can not create sell order for this token");
         IERC721 elemonContract = IERC721(_elemonNftAddress);
@@ -66,6 +73,7 @@ contract ElemonMarketplace is Ownable, ReentrancyGuard, IERC721Receiver{
         require(_tokenOwners[tokenId] == _msgSender(), "Forbidden to cancel sell order");
 
         IERC721 elemonContract = IERC721(_elemonNftAddress);
+
         //Transfer Elemon NFT from contract to sender
         elemonContract.safeTransferFrom(address(this), _msgSender(), tokenId);
         
@@ -87,14 +95,15 @@ contract ElemonMarketplace is Ownable, ReentrancyGuard, IERC721Receiver{
     /**
      * @dev Get purchase fee percent, this fee is for seller
      */ 
-    function getFeePercent() external view returns(uint){
-        return _feePercent;
+    function getFeePercent() external view returns(uint256 burningFeePercent, uint256 ecoFeePercent){
+        burningFeePercent = _burningFeePercent;
+        ecoFeePercent = _ecoFeePercent;
     }
     
     /**
      * @dev Get token price
      */ 
-    function getTokenPrice(uint256 tokenId) external view returns(uint){
+    function getTokenPrice(uint256 tokenId) external view returns(uint256){
         return _tokenPrices[tokenId];
     }
     
@@ -105,39 +114,35 @@ contract ElemonMarketplace is Ownable, ReentrancyGuard, IERC721Receiver{
         return _tokenOwners[tokenId];
     }
     
-    /**
-     * @dev User purchases a ELEMON by approving for `EMON` token payment
-     * When transaction is validated
-     *      - NFT will be sent to buyer, 
-     *      - `EMON` will be sent to seller,
-     *      - `EMON` fee will be sent to contract owner
-     * Event is used to retreive logs and histories
-     * 
-     */ 
-    function purchase(uint256 tokenId, uint256 feePercent, uint256 requestTokenPrice) external nonReentrant returns(uint){
+    function purchase(uint256 tokenId) external whenRunning nonReentrant returns(uint256){
         address tokenOwner = _tokenOwners[tokenId];
         require(tokenOwner != address(0),"Token has not been added");
-        require(feePercent == _feePercent, "Invalid feePercent");
-        require(requestTokenPrice > 0, "requestTokenPrice is zero");
         
         uint256 tokenPrice = _tokenPrices[tokenId];
-        require(requestTokenPrice == tokenPrice, "Invalid requestTokenPrice");
-        
+        uint256 ownerReceived = tokenPrice;
         if(tokenPrice > 0){
             IERC20 elemonTokenContract = IERC20(_elemonTokenAddress);    
             require(elemonTokenContract.transferFrom(_msgSender(), address(this), tokenPrice));
             uint256 feeAmount = 0;
-            if(_feePercent > 0){
-                feeAmount = tokenPrice * _feePercent / 100 / MULTIPLIER;
+            if(_burningFeePercent > 0){
+                feeAmount = tokenPrice * _burningFeePercent / 100 / MULTIPLIER;
                 if(feeAmount > 0){
-                    require(elemonTokenContract.transfer(owner(), feeAmount), "Fail to fee to contract owner");
+                    require(elemonTokenContract.transfer(BURN_ADDRESS, feeAmount), "Fail to transfer fee to address(0)");
+                    ownerReceived -= feeAmount;
                 }
             }
-            require(elemonTokenContract.transfer(tokenOwner, tokenPrice - feeAmount), "Fail to token to owner");
+            if(_ecoFeePercent > 0){
+                feeAmount = tokenPrice * _ecoFeePercent / 100 / MULTIPLIER;
+                if(feeAmount > 0){
+                    require(elemonTokenContract.transfer(_feeRecepientAddress, feeAmount), "Fail to transfer fee to eco address");
+                    ownerReceived -= feeAmount;
+                }
+            }
+            require(elemonTokenContract.transfer(tokenOwner, ownerReceived), "Fail to transfer token to owner");
         }
         
         //Transfer Elemon NFT from contract to sender
-        IERC721(_elemonNftAddress).transferFrom(address(this),_msgSender(), tokenId);
+        IERC721(_elemonNftAddress).transferFrom(address(this), _msgSender(), tokenId);
         
         _tokenOwners[tokenId] = address(0);
         _tokenPrices[tokenId] = 0;
@@ -145,6 +150,11 @@ contract ElemonMarketplace is Ownable, ReentrancyGuard, IERC721Receiver{
         emit Purchased(_msgSender(), tokenOwner, tokenId, tokenPrice, _now());
         
         return tokenPrice;
+    }
+
+    function setFeeRecepientAddress(address newAddress) external onlyOwner{
+        require(newAddress != address(0), "Zero address");
+        _feeRecepientAddress = newAddress;
     }
     
     /**
@@ -166,9 +176,11 @@ contract ElemonMarketplace is Ownable, ReentrancyGuard, IERC721Receiver{
     /**
      * @dev Get ELEMON token address 
      */
-    function setFeePercent(uint256 feePercent) external onlyOwner{
-        require(feePercent < 100 * MULTIPLIER, "Invalid fee percent");
-        _feePercent = feePercent;
+    function setFeePercent(uint256 burningFeePercent, uint256 ecoFeePercent) external onlyOwner{
+        require(burningFeePercent < 100 * MULTIPLIER, "Invalid burning fee percent");
+        require(ecoFeePercent < 100 * MULTIPLIER, "Invalid ecosystem fee percent");
+        _burningFeePercent = burningFeePercent;
+        _ecoFeePercent = ecoFeePercent;
     }
 
     /**
