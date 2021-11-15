@@ -260,7 +260,7 @@ abstract contract ERC721 is Context, ERC165, IERC721Metadata {
         _;
     }
 
-    uint256 _totalSupply = 1000;
+    uint256 public _totalSupply = 1000;
     
     //Contract owner
     address private _owner;
@@ -360,7 +360,7 @@ abstract contract ERC721 is Context, ERC165, IERC721Metadata {
      * in child contracts.
      */
     function _baseURI() internal view virtual returns (string memory) {
-        return "https://cryptofight.io/nft/";
+        return "https://assets.elemon.io/nft/";
     }
     
     /**
@@ -532,32 +532,6 @@ abstract contract ERC721 is Context, ERC165, IERC721Metadata {
     }
 
     /**
-     * @dev Destroys `tokenId`.
-     * The approval is cleared when the token is burned.
-     *
-     * Requirements:
-     *
-     * - `tokenId` must exist.
-     *
-     * Emits a {Transfer} event.
-     */
-    function _burn(uint256 tokenId) internal virtual {
-        address owner = ERC721.ownerOf(tokenId);
-
-        _beforeTokenTransfer(owner, address(0), tokenId);
-
-        // Clear approvals
-        _approve(address(0), tokenId);
-
-        _balances[owner] -= 1;
-        delete _owners[tokenId];
-
-        _totalSupply--;
-
-        emit Transfer(owner, address(0), tokenId);
-    }
-
-    /**
      * @dev Transfers `tokenId` from `from` to `to`.
      *  As opposed to {transferFrom}, this imposes no restrictions on msg.sender.
      *
@@ -660,13 +634,12 @@ contract ElemonNFT is ERC721{
     function mint(address to) public onlyOperator returns(uint256){
         return _safeMint(to);
     }
-    
-    function burn(uint tokenId) public onlyOwner returns(bool){
-        _burn(tokenId);
-        return true;
-    }
 
     function setOperator(address operatorAddress, bool value) public onlyOwner{
         _operators[operatorAddress] = value;
+        emit OperatorSetted(operatorAddress, value);
     }
+
+    event OperatorSetted(address operatorAddress, bool value);
+
 }

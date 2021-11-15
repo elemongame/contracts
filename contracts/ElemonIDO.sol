@@ -28,6 +28,9 @@ contract ElemonIDO is Ownable, ReentrancyGuard {
     mapping(address => uint256) public _claimCounts;
 
     constructor(address elmonAddress, address idoRecepientAddress){
+        require(elmonAddress != address(0), "Elmon zero address");
+        require(idoRecepientAddress != address(0), "idoRecepientAddress zero address");
+
         _busdToken = IERC20(0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56);
         _elmonToken = IERC20(elmonAddress);
         _idoRecepientAddress = idoRecepientAddress;
@@ -47,7 +50,7 @@ contract ElemonIDO is Ownable, ReentrancyGuard {
         require(_whiteLists[_msgSender()], "You are not in whitelist");
         require(_userBoughts[_msgSender()] == 0, "You have registerd before");
         
-        _busdToken.transferFrom(_msgSender(), _idoRecepientAddress , PAID_BUSD);
+        require(_busdToken.transferFrom(_msgSender(), _idoRecepientAddress , PAID_BUSD), "Can not transfer BUSD");
         _userBoughts[_msgSender()] = ELMON_ALLOCATION;
         _totalBought += ELMON_ALLOCATION;
 
@@ -75,7 +78,7 @@ contract ElemonIDO is Ownable, ReentrancyGuard {
         }
 
         require(tokenQuantity > 0, "Token quantity is not enough to claim");
-        _elmonToken.transfer(_msgSender(), tokenQuantity);
+        require(_elmonToken.transfer(_msgSender(), tokenQuantity), "Can not transfer ELMON");
 
         emit Claimed(_msgSender(), tokenQuantity);
     }
@@ -118,6 +121,8 @@ contract ElemonIDO is Ownable, ReentrancyGuard {
     }
 
     function setIdoBlocks(uint256 startBlock, uint256 endBlock) external onlyOwner{
+        //Will not check startBlock should be greater than current block
+        //Because the requirement is often change, the input should be checked manually
         require(startBlock < endBlock, "Start block should be less than end block");
         _startBlock = startBlock;
         _endBlock = endBlock;
