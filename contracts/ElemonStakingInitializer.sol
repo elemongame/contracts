@@ -11,6 +11,11 @@ import "./interfaces/IElemonInfo.sol";
 import "./interfaces/IERC721Receiver.sol";
 
 contract ElemonStakingInitializer is Ownable, ReentrancyGuard, IERC721Receiver {
+    struct VestingReward{
+        uint256 unlockedTime;
+        uint256 unlockedQuantity;
+    }
+
     // The address of the smart chef factory
     address public SMART_CHEF_FACTORY;
 
@@ -56,6 +61,15 @@ contract ElemonStakingInitializer is Ownable, ReentrancyGuard, IERC721Receiver {
     IERC721 public _elemonNFT;
     IElemonInfo public _elemonInfo;
 
+    address public _feeRecepientAddress;
+    uint256 public _feeDuration;
+    uint256 public _feePercent;
+
+    //Vesting reward properties
+    mapping(address => VestingReward[]) public _userVestingRewards;
+    uint256 public _vestingRewardPercent;
+    uint256 public _vestingRewardDuration;
+
     mapping(uint256 => uint256) public _boostBonusPercents;     //Multipled by 1000
 
     struct UserInfo {
@@ -64,6 +78,7 @@ contract ElemonStakingInitializer is Ownable, ReentrancyGuard, IERC721Receiver {
         uint256 rewardDebt; // Reward debt,
         uint256 boostTokenId;
         uint256 boostPercent;
+        uint256 lastStakingTime;
     }
 
     event AdminTokenRecovery(address tokenRecovered, uint256 amount);
@@ -95,7 +110,8 @@ contract ElemonStakingInitializer is Ownable, ReentrancyGuard, IERC721Receiver {
         uint256 _startBlock,
         uint256 _bonusEndBlock,
         uint256 _poolLimitPerUser,
-        address _admin
+        address _admin,
+        address feeRecepientAddress
     ) external {
         require(!isInitialized, "Already initialized");
         require(_msgSender() == SMART_CHEF_FACTORY, "Not factory");
@@ -108,6 +124,13 @@ contract ElemonStakingInitializer is Ownable, ReentrancyGuard, IERC721Receiver {
         rewardPerBlock = _rewardPerBlock;
         startBlock = _startBlock;
         bonusEndBlock = _bonusEndBlock;
+
+        _feeRecepientAddress = feeRecepientAddress;
+        _feeDuration = 72 hours;
+        _feePercent = 1000;         //1%;
+
+        _vestingRewardPercent = 50000;    //50% 
+        _vestingRewardDuration = 8 weeks;
 
         if (_poolLimitPerUser > 0) {
             hasUserLimit = true;
@@ -138,7 +161,8 @@ contract ElemonStakingInitializer is Ownable, ReentrancyGuard, IERC721Receiver {
         if (user.allocation > 0) {
             uint256 pending = _totalStaked * (user.allocation * accTokenPerShare / PRECISION_FACTOR - user.rewardDebt) / _totalAllocation;
             if (pending > 0) {
-                rewardToken.transfer(address(_msgSender()), pending);
+                pending = _calculateVestingReward(pending, _msgSender());
+                require(rewardToken.transfer(address(_msgSender()), pending), "Can not transfer reward");
             }
         }
 
@@ -146,13 +170,13 @@ contract ElemonStakingInitializer is Ownable, ReentrancyGuard, IERC721Receiver {
             user.stakedAmount += _amount;
             _totalAllocation -= user.allocation;
             user.allocation = user.stakedAmount + _getBonusAmount(user.stakedAmount, user.boostPercent);
-            stakedToken.transferFrom(address(_msgSender()), address(this), _amount);
+            require(stakedToken.transferFrom(address(_msgSender()), address(this), _amount), "Can not transfer staked token");
             _totalAllocation += user.allocation;
             _totalStaked += _amount;
         }
 
         user.rewardDebt = user.allocation * accTokenPerShare / PRECISION_FACTOR;
-
+        user.lastStakingTime = block.timestamp;
         emit Deposit(_msgSender(), _amount);
     }
 
@@ -208,13 +232,25 @@ contract ElemonStakingInitializer is Ownable, ReentrancyGuard, IERC721Receiver {
             user.stakedAmount -= _amount;
             _totalAllocation -= user.allocation;
             user.allocation = user.stakedAmount + _getBonusAmount(user.stakedAmount, user.boostPercent);
-            stakedToken.transfer(address(_msgSender()), _amount);
-            _totalAllocation += user.allocation;
+
+            uint256 amountToTransfer = _amount;
+            //Calculate fee
+            if(_feeDuration > 0 && user.lastStakingTime + _feeDuration > block.timestamp){
+                uint256 withdrawFeeQuantity = amountToTransfer * _feePercent / 100 / 1000;
+                if(withdrawFeeQuantity > 0){
+                    require(stakedToken.transfer(_feeRecepientAddress, withdrawFeeQuantity),"Can not transfer fee token");
+                    amountToTransfer -= withdrawFeeQuantity;
+                }
+            }
+
+            require(stakedToken.transfer(address(_msgSender()), amountToTransfer), "Can not transfer withdrawn token");
+            _totalAllocation -= user.allocation;
             _totalStaked -= _amount;
         }
 
         if (pending > 0) {
-            rewardToken.transfer(address(_msgSender()), pending);
+            pending = _calculateVestingReward(pending, _msgSender());
+            require(rewardToken.transfer(address(_msgSender()), pending), "Can not transfer reward token");
         }
 
         user.rewardDebt = user.allocation * accTokenPerShare / PRECISION_FACTOR;
@@ -236,7 +272,15 @@ contract ElemonStakingInitializer is Ownable, ReentrancyGuard, IERC721Receiver {
         user.boostPercent = 0;
 
         if (amountToTransfer > 0) {
-            stakedToken.transfer(address(_msgSender()), amountToTransfer);
+            //Calculate fee
+            if(_feeDuration > 0 && user.lastStakingTime + _feeDuration > block.timestamp){
+                uint256 withdrawFeeQuantity = amountToTransfer * _feePercent / 100 / 1000;
+                if(withdrawFeeQuantity > 0){
+                    require(stakedToken.transfer(_feeRecepientAddress, withdrawFeeQuantity),"Can not transfer fee token");
+                    amountToTransfer -= withdrawFeeQuantity;
+                }
+            }
+            require(stakedToken.transfer(address(_msgSender()), amountToTransfer),"Can not transfer withdrawn token");
         }
 
         if(user.boostTokenId > 0){
@@ -249,14 +293,55 @@ contract ElemonStakingInitializer is Ownable, ReentrancyGuard, IERC721Receiver {
     }
 
     function emergencyRewardWithdraw(uint256 _amount) external onlyOwner {
-        rewardToken.transfer(address(_msgSender()), _amount);
+        require(rewardToken.transfer(address(_msgSender()), _amount),"Can not transfer withdrawn token");
+    }
+
+    function claimVestingReward(uint256 count) external returns(bool){
+        VestingReward[] storage vestingRewards = _userVestingRewards[_msgSender()];
+        require(vestingRewards.length > 0, "Nothing to get reward");
+        require(count <= vestingRewards.length, "Invalid count parameter");
+
+        uint256 rewardTotal = 0; 
+        for(uint256 index = 0; index < count; index++){
+            if(vestingRewards[index].unlockedTime > 0 && vestingRewards[index].unlockedTime <= block.timestamp){
+                rewardTotal += vestingRewards[index].unlockedQuantity;
+                delete vestingRewards[index];
+            }
+        }
+
+        if(rewardTotal > 0)
+            require(rewardToken.transfer(_msgSender(), rewardTotal), "Can not transfer reward");
+
+        return true;
+    }
+
+    function claimAllVestingReward() external returns(bool){
+        VestingReward[] storage vestingRewards = _userVestingRewards[_msgSender()];
+        require(vestingRewards.length > 0, "Nothing to get reward");
+
+        uint256 rewardTotal = 0; 
+        for(uint256 index = 0; index < vestingRewards.length; index++){
+            if(vestingRewards[index].unlockedTime > 0){
+                if(vestingRewards[index].unlockedTime <= block.timestamp){
+                    rewardTotal += vestingRewards[index].unlockedQuantity;
+                    delete vestingRewards[index];
+                }else{
+                    break;
+                }
+            }
+        }
+
+        if(rewardTotal > 0)
+            require(rewardToken.transfer(_msgSender(), rewardTotal), "Can not transfer reward");
+
+        return true;
     }
 
     function recoverWrongTokens(address _tokenAddress, uint256 _tokenAmount) external onlyOwner {
         require(_tokenAddress != address(stakedToken), "Cannot be staked token");
         require(_tokenAddress != address(rewardToken), "Cannot be reward token");
 
-        IERC20(_tokenAddress).transfer(address(_msgSender()), _tokenAmount);
+        require(IERC20(_tokenAddress).transfer(address(_msgSender()), _tokenAmount), "Can not transfer token");
 
         emit AdminTokenRecovery(_tokenAddress, _tokenAmount);
     }
@@ -275,9 +360,22 @@ contract ElemonStakingInitializer is Ownable, ReentrancyGuard, IERC721Receiver {
         _elemonInfo = IElemonInfo(newAddress);
     }
 
+    function setFeeRecepientAddress(address newAddress) external onlyOwner{
+        require(newAddress != address(0), "Zero address");
+        _feeRecepientAddress = newAddress;
+    }
+
+    function setFeeDuration(uint256 feeDuration) external onlyOwner{
+        _feeDuration = feeDuration;
+    }
+
     function setBoostBonusPercents(uint256 level, uint256 percent) external onlyOwner{
         require(level > 0 && percent > 0, "Zero input");
         _boostBonusPercents[level] = percent;
+    }
+
+    function setVestingRewardPercent(uint256 percent) external onlyOwner{
+        _vestingRewardPercent = percent;
     }
 
     function updatePoolLimitPerUser(bool _hasUserLimit, uint256 _poolLimitPerUser) external onlyOwner {
@@ -364,5 +462,22 @@ contract ElemonStakingInitializer is Ownable, ReentrancyGuard, IERC721Receiver {
 
     function _getBonusAmount(uint256 amount, uint256 percent) internal pure returns(uint256){
         return amount * percent / 100 / 1000;
+    }
+
+    function _calculateVestingReward(uint256 rewardQuantity, address account) internal returns(uint256){
+        if(rewardQuantity > 0){
+            uint256 vestingReward = rewardQuantity * _vestingRewardPercent / 100 / 1000;
+            if(vestingReward > 0){
+                _userVestingRewards[account].push(VestingReward({
+                    unlockedTime: block.timestamp + _vestingRewardDuration,
+                    unlockedQuantity: vestingReward
+                }));
+                rewardQuantity -= vestingReward;
+            }
+
+            return rewardQuantity;
+        }
+
+        return 0;
     }
 }

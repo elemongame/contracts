@@ -208,7 +208,7 @@ contract ElemonSummon is ReentrancyGuard, VRFConsumerBase, ConfirmedOwner(msg.se
         }else{
             uint256 affiliateQuantity = price * _affiliatePercent / 1000 / 100;
             require(IERC20(_paymentTokenAddress).transferFrom(_msgSender(), affiliateAddress, affiliateQuantity), "Can not transfer affiliate token");
-            require(IERC20(_paymentTokenAddress).transferFrom(_msgSender(), _recepientTokenAddress, price - affiliateQuantity, "Can not transfer user token")
+            require(IERC20(_paymentTokenAddress).transferFrom(_msgSender(), _recepientTokenAddress, price - affiliateQuantity), "Can not transfer user token");
         }
 
         //Mint NFT
