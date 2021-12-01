@@ -13,7 +13,6 @@ import "./interfaces/IERC721.sol";
 contract MysteryBoxMarketplaceV2 is Initializable, OwnableUpgradeable, PausableUpgradeable, ReentrancyGuardUpgradeable, IERC721Receiver{
     address constant public BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
     
-    IERC20 public _elmonToken;
     IERC721 public _nft;
 
     address public _buyBackRecepientAddress;
@@ -34,16 +33,16 @@ contract MysteryBoxMarketplaceV2 is Initializable, OwnableUpgradeable, PausableU
 
     uint256 public _coolDownDuration;
 
-    function initialize(address tokenAddress, address nftAddress, 
+    function initialize(address nftAddress, 
         address buyBackRecepientAddress, address ecoRecepientAddress) public initializer {
-        require(tokenAddress != address(0), "Address 0");
-        require(nftAddress != address(0), "Address 0");
+        require(nftAddress != address(0), "nftAddress is address 0");
+        require(buyBackRecepientAddress != address(0), "buyBackRecepientAddress is address 0");
+        require(ecoRecepientAddress != address(0), "ecoRecepientAddress is address 0");
 
         __Pausable_init();
         __Ownable_init();
         __ReentrancyGuard_init();
         
-        _elmonToken = IERC20(tokenAddress);
         _nft = IERC721(nftAddress);
         _buyBackRecepientAddress = buyBackRecepientAddress;
         _ecoRecepientAddress = ecoRecepientAddress;
@@ -184,11 +183,6 @@ contract MysteryBoxMarketplaceV2 is Initializable, OwnableUpgradeable, PausableU
     function setNft(address newAddress) external onlyOwner{
         require(newAddress != address(0), "Zero address");
         _nft = IERC721(newAddress);
-    }
-    
-    function setElemonTokenAddress(address newAddress) external onlyOwner{
-        require(newAddress != address(0), "Zero address");
-        _elmonToken = IERC20(newAddress);
     }
     
     /**
