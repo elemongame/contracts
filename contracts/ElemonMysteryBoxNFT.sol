@@ -260,7 +260,7 @@ abstract contract ERC721 is Context, ERC165, IERC721Metadata {
         _;
     }
 
-    uint256 public _totalSupply = 1000;
+    uint256 public totalSupply = 0;
     
     //Contract owner
     address private _owner;
@@ -519,13 +519,13 @@ abstract contract ERC721 is Context, ERC165, IERC721Metadata {
     function _mint(address to) internal virtual returns(uint256){
         require(to != address(0), "ERC721: mint to the zero address");
 
-        uint256 tokenId = _totalSupply;
+        uint256 tokenId = totalSupply + 1;
         _beforeTokenTransfer(address(0), to, tokenId);
 
         _balances[to] += 1;
         _owners[tokenId] = to;
 
-        _totalSupply++;
+        totalSupply++;
 
         emit Transfer(address(0), to, tokenId);
         return tokenId;
@@ -641,5 +641,4 @@ contract ElemonMysteryBoxNFT is ERC721{
     }
 
     event OperatorSetted(address operatorAddress, bool value);
-
 }

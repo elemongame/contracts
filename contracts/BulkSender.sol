@@ -3,10 +3,11 @@
 pragma solidity 0.8.9;
 
 import "./interfaces/IERC20.sol";
+import "./interfaces/IElemonNFT.sol";
 import "./utils/ReentrancyGuard.sol";
 import "./utils/Runnable.sol";
 
-contract ElemonDistributor is Runnable, ReentrancyGuard{
+contract BulkSender is Runnable, ReentrancyGuard{
     function distribute(address tokenAddress, address[] memory addresses, uint256[] memory amounts) public whenRunning nonReentrant{
         IERC20 token = IERC20(tokenAddress);
         for(uint256 index = 0; index < addresses.length; index++){
@@ -33,6 +34,21 @@ contract ElemonDistributor is Runnable, ReentrancyGuard{
     function distributeNative(address[] memory addresses, uint256 amount) payable public whenRunning nonReentrant{
         for(uint256 index = 0; index < addresses.length; index++){
             payable(addresses[index]).transfer(amount);
+        }
+    }
+
+    function mintMultiple(address nftAddress, address[] memory recepients) public onlyOwner{
+        IElemonNFT nft = IElemonNFT(nftAddress);
+        for(uint256 index = 0; index < recepients.length; index++){
+            nft.mint(recepients[index]);
+        }
+    }
+
+    function transferNftMultiple(address nftAddress, address[] memory recepients, uint256[] memory tokenIds) public onlyOwner{
+        require(recepients.length == tokenIds.length, "Invalid parameter length");
+        IElemonNFT nft = IElemonNFT(nftAddress);
+        for(uint256 index = 0; index < recepients.length; index++){
+            nft.safeTransferFrom(_msgSender(), recepients[index], tokenIds[index]);
         }
     }
 }

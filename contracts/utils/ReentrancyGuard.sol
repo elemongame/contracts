@@ -3,13 +3,13 @@
 pragma solidity 0.8.9;
 
 abstract contract ReentrancyGuard {
-    uint256 private constant _NOT_ENTERED = 1;
+    uint256 public constant _NOT_ENTERED = 1;
     uint256 private constant _ENTERED = 2;
 
-    uint256 private _status;
+    uint256 internal _status;
 
     constructor() {
-        _status = _NOT_ENTERED;
+         _status = _NOT_ENTERED;
     }
 
     modifier nonReentrant() {

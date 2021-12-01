@@ -244,7 +244,7 @@ contract ElemonStakingInitializer is Ownable, ReentrancyGuard, IERC721Receiver {
             }
 
             require(stakedToken.transfer(address(_msgSender()), amountToTransfer), "Can not transfer withdrawn token");
-            _totalAllocation -= user.allocation;
+            _totalAllocation += user.allocation;
             _totalStaked -= _amount;
         }
 
